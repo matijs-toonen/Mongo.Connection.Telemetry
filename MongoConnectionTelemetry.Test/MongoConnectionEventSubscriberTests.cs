@@ -213,7 +213,7 @@ public class MongoConnectionEventSubscriberTests : IDisposable
         listener.RecordObservableInstruments();
 
         ConnectionCountMeasurements(measurements)
-            .Select(measurement => ((int)measurement.Measurement, measurement.Tags["server.address"]))
+            .Select(measurement => ((int)measurement.Measurement, measurement.Tags["db.server.connection.address"]))
             .Should().BeEquivalentTo([(1, "localhost"), (2, "other-host")]);
     }
 
@@ -230,7 +230,7 @@ public class MongoConnectionEventSubscriberTests : IDisposable
         listener.RecordObservableInstruments();
 
         ConnectionCountMeasurements(measurements)
-            .Select(measurement => measurement.Tags["db.client.connection.pool.name"])
+            .Select(measurement => measurement.Tags["db.client.connection.name"])
             .Should().BeEquivalentTo([Name, "other-"]);
     }
 
@@ -410,7 +410,7 @@ public class MongoConnectionEventSubscriberTests : IDisposable
         listener.RecordObservableInstruments();
 
         PendingRequestMeasurements(measurements)
-            .Select(measurement => ((int)measurement.Measurement, measurement.Tags["server.address"]))
+            .Select(measurement => ((int)measurement.Measurement, measurement.Tags["db.server.connection.address"]))
             .Should().BeEquivalentTo([(1, "localhost"), (2, "other-host")]);
     }
 
@@ -498,9 +498,9 @@ public class MongoConnectionEventSubscriberTests : IDisposable
     private static Dictionary<string, object?> Tags(string name = Name) =>
         new()
         {
-            ["db.client.connection.pool.name"] = name,
-            ["server.address"] = "localhost",
-            ["server.port"] = 27017
+            ["db.client.connection.name"] = name,
+            ["db.server.connection.address"] = "localhost",
+            ["db.server.connection.port"] = 27017
         };
 
     private static MongoConnectionEventSubscriber CreateSubscriber(string name = Name) =>

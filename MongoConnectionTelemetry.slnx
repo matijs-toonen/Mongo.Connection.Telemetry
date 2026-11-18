@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Source/">
+    <Project Path="MongoConnectionTelemetry/MongoConnectionTelemetry.csproj" />
+  </Folder>
+  <Folder Name="/Tests/" />
+  <Folder Name="/Workspace Files/">
+    <File Path=".gitignore" />
+    <File Path="LICENSE" />
+  </Folder>
+</Solution>

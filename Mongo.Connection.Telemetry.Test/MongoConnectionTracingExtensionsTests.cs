@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Driver.Core.Configuration;
 using Xunit;
 
-namespace MongoConnectionTelemetry.Test;
+namespace Mongo.Connection.Telemetry.Test;
 
 public class MongoConnectionTracingExtensionsTests
 {
@@ -137,7 +137,7 @@ public class MongoConnectionTracingExtensionsTests
     {
         var inMemorySettings = new Dictionary<string, string?>
         {
-            ["MongoConnectionTelemetry:Enabled"] = "true"
+            [$"{MongoConnectionTracingOptions.DefaultSectionName}:Enabled"] = "true"
         };
 
         var configuration = new ConfigurationBuilder()
@@ -146,7 +146,7 @@ public class MongoConnectionTracingExtensionsTests
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddMongoConnectionTracing(configuration, "MongoConnectionTelemetry");
+        services.AddMongoConnectionTracing(configuration, MongoConnectionTracingOptions.DefaultSectionName);
 
         var provider = services.BuildServiceProvider();
         var clusterBuilder = new ClusterBuilder();

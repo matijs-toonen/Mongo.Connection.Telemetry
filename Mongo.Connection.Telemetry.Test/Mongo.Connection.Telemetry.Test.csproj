@@ -19,7 +19,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\MongoConnectionTelemetry\MongoConnectionTelemetry.csproj" />
+      <ProjectReference Include="..\Mongo.Connection.Telemetry\Mongo.Connection.Telemetry.csproj" />
     </ItemGroup>
 
 </Project>

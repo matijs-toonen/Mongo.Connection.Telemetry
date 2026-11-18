@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver.Core.Configuration;
 
-namespace MongoConnectionTelemetry;
+namespace Mongo.Connection.Telemetry;
 
 /// <summary>
 /// Startup extensions for the MongoDb connection tracing and metrics.

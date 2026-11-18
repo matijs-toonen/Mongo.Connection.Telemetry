@@ -4,7 +4,7 @@
         <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <PackageId>MongoDB.Connection.Telemetry</PackageId>
+        <PackageId>Mongo.Connection.Telemetry</PackageId>
         <version>0.0.1</version>
         <Description>OpenTelemetry instrumentation and metrics for MongoDB connections.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>

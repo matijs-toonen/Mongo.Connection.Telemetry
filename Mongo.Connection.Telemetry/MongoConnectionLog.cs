@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace MongoConnectionTelemetry;
+namespace Mongo.Connection.Telemetry;
 
 /// <summary>
 /// Source generated log messages for the MongoDb connection diagnostics.

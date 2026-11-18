@@ -30,9 +30,9 @@ jobs:
       # so MinVer picks it up as the package version for this build.
       - name: Tag Commit With csproj Version
         run: |
-          VERSION=$(sed -n 's:.*<[Vv]ersion>\(.*\)</[Vv]ersion>.*:\1:p' MongoConnectionTelemetry/MongoConnectionTelemetry.csproj | head -n 1)
+          VERSION=$(sed -n 's:.*<[Vv]ersion>\(.*\)</[Vv]ersion>.*:\1:p' Mongo.Connection.Telemetry/Mongo.Connection.Telemetry.csproj | head -n 1)
           if [ -z "$VERSION" ]; then
-            echo "Could not read <version> from MongoConnectionTelemetry/MongoConnectionTelemetry.csproj" >&2
+            echo "Could not read <version> from Mongo.Connection.Telemetry/Mongo.Connection.Telemetry.csproj" >&2
             exit 1
           fi
           TAG="v$VERSION"
@@ -69,7 +69,7 @@ jobs:
       # deterministic (ContinuousIntegrationBuild) settings come from the csproj.
       - name: Create Package (.nupkg + .snupkg)
         run: >
-          dotnet pack MongoConnectionTelemetry/MongoConnectionTelemetry.csproj
+          dotnet pack Mongo.Connection.Telemetry/Mongo.Connection.Telemetry.csproj
           --configuration Release
           --no-build
           --output ./artifacts

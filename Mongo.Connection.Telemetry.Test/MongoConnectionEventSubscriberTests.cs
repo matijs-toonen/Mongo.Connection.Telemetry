@@ -10,7 +10,7 @@ using MongoDB.Driver.Core.Events;
 using MongoDB.Driver.Core.Servers;
 using Xunit;
 
-namespace MongoConnectionTelemetry.Test;
+namespace Mongo.Connection.Telemetry.Test;
 
 public class MongoConnectionEventSubscriberTests : IDisposable
 {

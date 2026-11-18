@@ -1,9 +1,9 @@
 <Solution>
   <Folder Name="/Source/">
-    <Project Path="MongoConnectionTelemetry/MongoConnectionTelemetry.csproj" />
+    <Project Path="Mongo.Connection.Telemetry/Mongo.Connection.Telemetry.csproj" />
   </Folder>
   <Folder Name="/Tests/">
-    <Project Path="MongoConnectionTelemetry.Test/MongoConnectionTelemetry.Test.csproj" />
+    <Project Path="Mongo.Connection.Telemetry.Test/Mongo.Connection.Telemetry.Test.csproj" />
   </Folder>
   <Folder Name="/Workspace Files/">
     <File Path=".editorconfig" />

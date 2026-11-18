@@ -1,4 +1,4 @@
-namespace MongoConnectionTelemetry;
+namespace Mongo.Connection.Telemetry;
 
 /// <summary>
 /// Settings for the MongoDb connection tracing and metrics.
@@ -8,7 +8,7 @@ public class MongoConnectionTracingOptions
     /// <summary>
     /// The default configuration section name for MongoDb connection telemetry.
     /// </summary>
-    public const string DefaultSectionName = "MongoConnectionTelemetry";
+    public const string DefaultSectionName = "Mongo.Connection.Telemetry";
 
     /// <summary>
     /// Whether the connection checkout information is added to the traces and metrics.

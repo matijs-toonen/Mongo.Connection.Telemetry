@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Driver.Core.Events;
 using MongoDB.Driver.Core.Servers;
 
-namespace MongoConnectionTelemetry;
+namespace Mongo.Connection.Telemetry;
 
 /// <summary>
 /// Reports MongoDb connection pool and wait queue metrics, as well as spans for checkouts that had to wait in the
@@ -25,12 +25,12 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     /// Name of the <see cref="System.Diagnostics.ActivitySource"/> used, it has to be registered on the tracer
     /// provider for the spans to be exported.
     /// </summary>
-    public const string ActivitySourceName = "MongoDb.Connection.Telemetry";
+    public const string ActivitySourceName = "Mongo.Connection.Telemetry";
 
     /// <summary>
     /// Name of the <see cref="Meter"/> used to publish connection pool and wait queue metrics.
     /// </summary>
-    public const string MeterName = "MongoDb.Connection.Telemetry";
+    public const string MeterName = "Mongo.Connection.Telemetry";
 
     private const string CheckoutActivityName = "MongoDb connection received from pool";
     private const string IdleTagName = "db.client.connection.pool.idle";

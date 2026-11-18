@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Logging;
 
-namespace MongoConnectionTelemetry.Diagnostics;
+namespace MongoConnectionTelemetry;
 
 /// <summary>
-/// Source generated log messages for the MongoDb connection pool diagnostics.
+/// Source generated log messages for the MongoDb connection diagnostics.
 /// </summary>
-internal static partial class MongoConnectionPoolLog
+internal static partial class MongoConnectionLog
 {
     [LoggerMessage(
         EventId = 1,

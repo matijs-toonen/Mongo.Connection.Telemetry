@@ -2,9 +2,13 @@
   <Folder Name="/Source/">
     <Project Path="MongoConnectionTelemetry/MongoConnectionTelemetry.csproj" />
   </Folder>
-  <Folder Name="/Tests/" />
+  <Folder Name="/Tests/">
+    <Project Path="MongoConnectionTelemetry.Test/MongoConnectionTelemetry.Test.csproj" />
+  </Folder>
   <Folder Name="/Workspace Files/">
+    <File Path=".editorconfig" />
     <File Path=".gitignore" />
     <File Path="LICENSE" />
+    <File Path="README.md" />
   </Folder>
 </Solution>

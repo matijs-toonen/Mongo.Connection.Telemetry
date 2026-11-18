@@ -2,12 +2,11 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
-using System.Reflection;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver.Core.Events;
 using MongoDB.Driver.Core.Servers;
 
-namespace MongoConnectionTelemetry.Diagnostics;
+namespace MongoConnectionTelemetry;
 
 /// <summary>
 /// Reports MongoDb connection pool checkout wait-time metrics and spans for checkouts that had to wait for a
@@ -19,30 +18,29 @@ namespace MongoConnectionTelemetry.Diagnostics;
 /// This subscriber closes that gap by emitting a span for every checkout that waited longer than the configured
 /// threshold, and for every checkout that failed (for instance because it timed out waiting for the pool).
 /// </summary>
-public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
+public sealed class MongoConnectionEventSubscriber : IEventSubscriber
 {
     /// <summary>
     /// Name of the <see cref="System.Diagnostics.ActivitySource"/> used, it has to be registered on the tracer
     /// provider for the spans to be exported.
     /// </summary>
-    public const string ActivitySourceName = "MongoDb.ConnectionPool";
+    public const string ActivitySourceName = "MongoDb.Connection.Telemetry";
 
     /// <summary>
-    /// Name of the <see cref="Meter"/> used to publish connection pool metrics.
+    /// Name of the <see cref="Meter"/> used to publish connection metrics.
     /// </summary>
-    public const string MeterName = "MongoDb.ConnectionPool";
+    public const string MeterName = "MongoDb.Connection.Telemetry";
 
-    private const string CheckoutActivityName = "mongodb connection checkout";
+    private const string CheckoutActivityName = "MongoDb connection received from pool";
 
     private static readonly ActivitySource ActivitySource = new(ActivitySourceName);
     private static readonly Meter Meter = new(MeterName);
 
-    private readonly ConcurrentDictionary<ServerId, PoolState> poolStates = new();
-    private readonly ReflectionEventSubscriber subscriber;
-    private readonly ILogger logger;
-    private readonly string poolName;
-    private readonly TimeSpan slowCheckoutThreshold;
-    private readonly Histogram<double> connectionWaitTime;
+    private readonly ConcurrentDictionary<ServerId, PoolState> _poolStates = new();
+    private readonly ILogger _logger;
+    private readonly string _poolName;
+    private readonly TimeSpan _slowCheckoutThreshold;
+    private readonly Histogram<double> _connectionWaitTime;
 
     /// <summary>
     /// Creates the subscriber for a single MongoDb client.
@@ -50,12 +48,11 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
     /// <param name="poolName">Name identifying the client the pool belongs to, used in the log messages.</param>
     /// <param name="options">Settings for the tracing and metrics.</param>
     /// <param name="logger">Logger used to report failed checkouts.</param>
-    public MongoConnectionPoolEventSubscriber(string poolName, MongoConnectionPoolTracingOptions options, ILogger logger)
+    public MongoConnectionEventSubscriber(string poolName, MongoConnectionTracingOptions options, ILogger logger)
     {
-        this.poolName = poolName;
-        this.logger = logger;
-        slowCheckoutThreshold = TimeSpan.FromMilliseconds(options.SlowCheckoutThresholdInMilliseconds);
-        subscriber = new ReflectionEventSubscriber(this, nameof(Handle), BindingFlags.Instance | BindingFlags.NonPublic);
+        this._poolName = poolName;
+        this._logger = logger;
+        _slowCheckoutThreshold = TimeSpan.FromMilliseconds(options.SlowCheckoutThresholdInMilliseconds);
         // Recording the number of connections in use on every checkout would only export the value of the moment the
         // metrics are collected, peaks that are over before the next collection would be invisible. The number of
         // connections in use is therefore tracked as a high watermark that is published by an observable instrument:
@@ -82,14 +79,48 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
             ObserveMaxConnections,
             "{connection}",
             "Maximum number of connections in the pool.");
-        connectionWaitTime = Meter.CreateHistogram<double>(
+        _connectionWaitTime = Meter.CreateHistogram<double>(
             "db.client.connection.wait_time",
             "ms",
             "Time spent waiting to obtain a connection from the pool.");
     }
 
     /// <inheritdoc />
-    public bool TryGetEventHandler<TEvent>(out Action<TEvent> handler) => subscriber.TryGetEventHandler(out handler);
+    public bool TryGetEventHandler<TEvent>(out Action<TEvent> handler)
+    {
+        if (typeof(TEvent) == typeof(ConnectionPoolOpenedEvent))
+        {
+            handler = (Action<TEvent>)(object)(Action<ConnectionPoolOpenedEvent>)Handle;
+            return true;
+        }
+
+        if (typeof(TEvent) == typeof(ConnectionPoolCheckingOutConnectionEvent))
+        {
+            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckingOutConnectionEvent>)Handle;
+            return true;
+        }
+
+        if (typeof(TEvent) == typeof(ConnectionPoolCheckedOutConnectionEvent))
+        {
+            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckedOutConnectionEvent>)Handle;
+            return true;
+        }
+
+        if (typeof(TEvent) == typeof(ConnectionPoolCheckedInConnectionEvent))
+        {
+            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckedInConnectionEvent>)Handle;
+            return true;
+        }
+
+        if (typeof(TEvent) == typeof(ConnectionPoolCheckingOutConnectionFailedEvent))
+        {
+            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckingOutConnectionFailedEvent>)Handle;
+            return true;
+        }
+
+        handler = null!;
+        return false;
+    }
 
     // The maximum pool size is a setting of the client, it never changes after the pool has been opened, so it is
     // only stored the first time the pool reports it. It is published by an observable instrument because the value
@@ -114,10 +145,10 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
         poolState.TrackPeakConnectionsInUse();
         RecordWaitTime(poolState, @event.Duration, failureReason: null);
 
-        // if (@event.Duration < slowCheckoutThreshold)
-        // {
-        //     return;
-        // }
+        if (@event.Duration < _slowCheckoutThreshold)
+        {
+            return;
+        }
 
         Report(@event.Duration, connectionsInUse, maxPoolSize, failureReason: null);
     }
@@ -138,21 +169,21 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
     }
 
     private PoolState GetPoolState(ServerId serverId) =>
-        poolStates.GetOrAdd(serverId, static (id, name) => new PoolState(id, name), poolName);
+        _poolStates.GetOrAdd(serverId, static (id, name) => new PoolState(id, name), _poolName);
 
     // Every server of the client keeps its own counters and its own high water mark, each of them is reported as a
     // measurement of its own that is tagged with the server it belongs to. The high water mark is reset to the number
     // of connections that is in use right now, the next collection reports the peak of its own interval.
     private IEnumerable<Measurement<int>> ObserveConnectionsInUse() =>
-        poolStates.Values.Select(poolState =>
+        _poolStates.Values.Select(poolState =>
             new Measurement<int>(poolState.ExchangePeakConnectionsInUse(), poolState.Tags));
 
     private IEnumerable<Measurement<int>> ObservePendingRequests() =>
-        poolStates.Values.Select(poolState =>
+        _poolStates.Values.Select(poolState =>
             new Measurement<int>(poolState.ExchangePeakPendingRequests(), poolState.Tags));
 
     private IEnumerable<Measurement<int>> ObserveMaxConnections() =>
-        poolStates.Values
+        _poolStates.Values
             .Where(poolState => poolState.MaxPoolSize > 0)
             .Select(poolState => new Measurement<int>(poolState.MaxPoolSize, poolState.Tags));
 
@@ -165,7 +196,7 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
             tags.Add("db.client.connection.checkout.failure_reason", failureReason);
         }
 
-        connectionWaitTime.Record(waited.TotalMilliseconds, tags);
+        _connectionWaitTime.Record(waited.TotalMilliseconds, tags);
     }
 
     private void Report(TimeSpan waited, int connectionsInUse, int maxPoolSize, string? failureReason)
@@ -176,11 +207,11 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
 
         if (failureReason is not null)
         {
-            logger.CheckoutFailed(poolName, waited.TotalMilliseconds, failureReason, connectionsInUse, maxPoolSize);
+            _logger.CheckoutFailed(_poolName, waited.TotalMilliseconds, failureReason, connectionsInUse, maxPoolSize);
         }
         else if (exhausted)
         {
-            logger.CheckoutWaitedForExhaustedPool(poolName, waited.TotalMilliseconds, maxPoolSize);
+            _logger.CheckoutWaitedForExhaustedPool(_poolName, waited.TotalMilliseconds, maxPoolSize);
         }
     }
 
@@ -220,11 +251,11 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
     /// </summary>
     private sealed class PoolState
     {
-        private int connectionsInUse;
-        private int pendingRequests;
-        private int maxPoolSize;
-        private int peakConnectionsInUse;
-        private int peakPendingRequests;
+        private int _connectionsInUse;
+        private int _pendingRequests;
+        private int _maxPoolSize;
+        private int _peakConnectionsInUse;
+        private int _peakPendingRequests;
 
         public PoolState(ServerId serverId, string poolName)
         {
@@ -255,25 +286,28 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
         /// <summary>
         /// Tags identifying the pool, they are added to every measurement reported for this server.
         /// </summary>
-        public TagList Tags { get; }
+        public TagList Tags
+        {
+            get;
+        }
 
-        public int MaxPoolSize => Volatile.Read(ref maxPoolSize);
+        public int MaxPoolSize => Volatile.Read(ref _maxPoolSize);
 
-        public int ConnectionsInUse => Volatile.Read(ref connectionsInUse);
+        public int ConnectionsInUse => Volatile.Read(ref _connectionsInUse);
 
-        public int PendingRequests => Volatile.Read(ref pendingRequests);
+        public int PendingRequests => Volatile.Read(ref _pendingRequests);
 
         /// <summary>
         /// Stores the maximum pool size the first time it is reported, later reports are ignored.
         /// </summary>
         /// <returns><c>true</c> when the maximum pool size was set by this call.</returns>
-        public bool TrySetMaxPoolSize(int value) => Interlocked.CompareExchange(ref maxPoolSize, value, 0) == 0;
+        public bool TrySetMaxPoolSize(int value) => Interlocked.CompareExchange(ref _maxPoolSize, value, 0) == 0;
 
-        public int Acquire() => Interlocked.Increment(ref connectionsInUse);
+        public int Acquire() => Interlocked.Increment(ref _connectionsInUse);
 
-        public void BeginCheckout() => Interlocked.Increment(ref pendingRequests);
+        public void BeginCheckout() => Interlocked.Increment(ref _pendingRequests);
 
-        public bool TryEndCheckout() => TryDecrement(ref pendingRequests);
+        public bool TryEndCheckout() => TryDecrement(ref _pendingRequests);
 
         /// <summary>
         /// Lowers the number of connections in use. Check-ins of connections whose checkout was not seen, for
@@ -281,23 +315,23 @@ public sealed class MongoConnectionPoolEventSubscriber : IEventSubscriber
         /// ignored so the number of connections in use can never become negative.
         /// </summary>
         /// <returns><c>true</c> when the number of connections in use was lowered by this call.</returns>
-        public bool TryRelease() => TryDecrement(ref connectionsInUse);
+        public bool TryRelease() => TryDecrement(ref _connectionsInUse);
 
-        public void TrackPeakConnectionsInUse() => TrackPeak(ref peakConnectionsInUse, ConnectionsInUse);
+        public void TrackPeakConnectionsInUse() => TrackPeak(ref _peakConnectionsInUse, ConnectionsInUse);
 
-        public void TrackPeakPendingRequests() => TrackPeak(ref peakPendingRequests, PendingRequests);
+        public void TrackPeakPendingRequests() => TrackPeak(ref _peakPendingRequests, PendingRequests);
 
         /// <summary>
         /// Reads the highest number of connections that were in use since the previous collection and starts the
         /// next interval at the number of connections that is in use right now.
         /// </summary>
-        public int ExchangePeakConnectionsInUse() => Interlocked.Exchange(ref peakConnectionsInUse, ConnectionsInUse);
+        public int ExchangePeakConnectionsInUse() => Interlocked.Exchange(ref _peakConnectionsInUse, ConnectionsInUse);
 
         /// <summary>
         /// Reads the highest number of requests that were waiting for a connection since the previous collection and
         /// starts the next interval at the number of requests that is waiting right now.
         /// </summary>
-        public int ExchangePeakPendingRequests() => Interlocked.Exchange(ref peakPendingRequests, PendingRequests);
+        public int ExchangePeakPendingRequests() => Interlocked.Exchange(ref _peakPendingRequests, PendingRequests);
 
         private static void TrackPeak(ref int peak, int value)
         {

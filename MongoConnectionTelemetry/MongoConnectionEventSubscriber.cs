@@ -33,6 +33,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     public const string MeterName = "MongoDb.Connection.Telemetry";
 
     private const string CheckoutActivityName = "MongoDb connection received from pool";
+    private const string IdleTagName = "db.client.connection.pool.idle";
 
     private static readonly ActivitySource ActivitySource = new(ActivitySourceName);
     private static readonly Meter Meter = new(MeterName);
@@ -41,6 +42,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     private readonly ILogger _logger;
     private readonly string _connectionInstanceName;
     private readonly TimeSpan _slowCheckoutThreshold;
+    private readonly TimeSpan _idleAfterNoRequests;
     private readonly Histogram<double> _connectionWaitTime;
 
     private readonly Action<ConnectionPoolOpenedEvent> _openedHandler;
@@ -60,6 +62,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
         _connectionInstanceName = connectionInstanceName;
         _logger = logger;
         _slowCheckoutThreshold = TimeSpan.FromMilliseconds(options.SlowCheckoutThresholdInMilliseconds);
+        _idleAfterNoRequests = TimeSpan.FromSeconds(options.IdleAfterNoRequestsInSeconds);
         _openedHandler = Handle;
         _checkingOutHandler = Handle;
         _checkedOutHandler = Handle;
@@ -144,6 +147,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     private void Handle(ConnectionPoolCheckingOutConnectionEvent @event)
     {
         var poolState = GetPoolState(@event.ServerId);
+        poolState.RecordRequest();
         poolState.BeginCheckout();
         poolState.TrackPeakPendingRequests();
     }
@@ -151,6 +155,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     private void Handle(ConnectionPoolCheckedOutConnectionEvent @event)
     {
         var poolState = GetPoolState(@event.ConnectionId.ServerId);
+        poolState.RecordRequest();
         var connectionsInUse = poolState.Acquire();
         poolState.TryEndCheckout();
         var maxPoolSize = poolState.MaxPoolSize;
@@ -172,6 +177,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     private void Handle(ConnectionPoolCheckingOutConnectionFailedEvent @event)
     {
         var poolState = GetPoolState(@event.ServerId);
+        poolState.RecordRequest();
         poolState.TryEndCheckout();
         var failureReason = @event.Reason.ToString();
         var connectionsInUse = poolState.ConnectionsInUse;
@@ -182,27 +188,30 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     }
 
     private PoolState GetPoolState(ServerId serverId) =>
-        _poolStates.GetOrAdd(serverId, static (id, name) => new PoolState(id, name), _connectionInstanceName);
+        _poolStates.GetOrAdd(
+            serverId,
+            static (id, state) => new PoolState(id, state.Name, state.IdleAfterNoRequests),
+            (Name: _connectionInstanceName, IdleAfterNoRequests: _idleAfterNoRequests));
 
     // Every server of the client keeps its own counters and its own high water mark, each of them is reported as a
     // measurement of its own that is tagged with the server it belongs to. The high water mark is reset to the number
     // of connections that is in use right now, the next collection reports the peak of its own interval.
     private IEnumerable<Measurement<int>> ObserveConnectionsInUse() =>
         _poolStates.Values.Select(poolState =>
-            new Measurement<int>(poolState.ExchangePeakConnectionsInUse(), poolState.Tags));
+            new Measurement<int>(poolState.ExchangePeakConnectionsInUse(), poolState.CreateTags()));
 
     private IEnumerable<Measurement<int>> ObservePendingRequests() =>
         _poolStates.Values.Select(poolState =>
-            new Measurement<int>(poolState.ExchangePeakPendingRequests(), poolState.Tags));
+            new Measurement<int>(poolState.ExchangePeakPendingRequests(), poolState.CreateTags()));
 
     private IEnumerable<Measurement<int>> ObserveMaxConnections() =>
         _poolStates.Values
             .Where(poolState => poolState.MaxPoolSize > 0)
-            .Select(poolState => new Measurement<int>(poolState.MaxPoolSize, poolState.Tags));
+            .Select(poolState => new Measurement<int>(poolState.MaxPoolSize, poolState.CreateTags()));
 
     private void RecordWaitTime(PoolState poolState, TimeSpan waited, string? failureReason)
     {
-        var tags = poolState.Tags;
+        var tags = poolState.CreateTags();
 
         if (failureReason is not null)
         {
@@ -264,14 +273,21 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     /// </summary>
     private sealed class PoolState
     {
+        private readonly TimeSpan _idleAfterNoRequests;
+        private readonly TagList _idleTags;
+        private readonly TagList _busyTags;
+
         private int _connectionsInUse;
         private int _pendingRequests;
         private int _maxPoolSize;
         private int _peakConnectionsInUse;
         private int _peakPendingRequests;
+        private long _lastRequestTimestamp;
 
-        public PoolState(ServerId serverId, string connectionName)
+        public PoolState(ServerId serverId, string connectionName, TimeSpan idleAfterNoRequests)
         {
+            _idleAfterNoRequests = idleAfterNoRequests;
+
             // The server id itself is not used as a tag: it contains the cluster id, a counter that starts over on
             // every start of the process, which would create a new series on every restart. The endpoint of the
             // server is the stable part of it.
@@ -293,6 +309,17 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
             }
 
             Tags = tags;
+
+            // The idle state is the only part of the tags that changes, and it only has two possible values. Both
+            // variants are built once here so that reporting a measurement is a copy of a readonly struct instead of
+            // building the tag list over again on every single measurement.
+            var idleTags = tags;
+            idleTags.Add(IdleTagName, true);
+            _idleTags = idleTags;
+
+            var busyTags = tags;
+            busyTags.Add(IdleTagName, false);
+            _busyTags = busyTags;
         }
 
         /// <summary>
@@ -302,6 +329,18 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
         {
             get;
         }
+
+        /// <summary>
+        /// Whether the pool is idle: no connection is in use, no request is waiting in the wait queue and no
+        /// checkout request has been received within the configured inactivity window.
+        /// </summary>
+        public bool IsIdle => ConnectionsInUse == 0 && PendingRequests == 0 && HasNotSeenRequestsRecently();
+
+        /// <summary>
+        /// Tags of a measurement: the tags identifying the pool plus the current idle state of the pool. Both
+        /// variants are prepared upfront, the caller receives a copy of the matching one.
+        /// </summary>
+        public TagList CreateTags() => IsIdle ? _idleTags : _busyTags;
 
         public int MaxPoolSize => Volatile.Read(ref _maxPoolSize);
 
@@ -314,6 +353,12 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
         /// </summary>
         /// <returns><c>true</c> when the maximum pool size was set by this call.</returns>
         public bool TrySetMaxPoolSize(int value) => Interlocked.CompareExchange(ref _maxPoolSize, value, 0) == 0;
+
+        /// <summary>
+        /// Remembers the moment a checkout request was received, the pool is not reported as idle until the
+        /// configured inactivity window has passed since then.
+        /// </summary>
+        public void RecordRequest() => Volatile.Write(ref _lastRequestTimestamp, Stopwatch.GetTimestamp());
 
         public int Acquire() => Interlocked.Increment(ref _connectionsInUse);
 
@@ -344,6 +389,19 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
         /// starts the next interval at the number of requests that is waiting right now.
         /// </summary>
         public int ExchangePeakPendingRequests() => Interlocked.Exchange(ref _peakPendingRequests, PendingRequests);
+
+        private bool HasNotSeenRequestsRecently()
+        {
+            var lastRequestTimestamp = Volatile.Read(ref _lastRequestTimestamp);
+
+            // No request has ever been received, a pool that was never used is idle from the moment it is opened.
+            if (lastRequestTimestamp == 0)
+            {
+                return true;
+            }
+
+            return Stopwatch.GetElapsedTime(lastRequestTimestamp) >= _idleAfterNoRequests;
+        }
 
         private static void TrackPeak(ref int peak, int value)
         {

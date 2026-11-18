@@ -50,13 +50,15 @@ Settings can be configured in `appsettings.json` under the `MongoConnectionTelem
 {
   "MongoConnectionTelemetry": {
     "Enabled": true,
-    "SlowCheckoutThresholdInMilliseconds": 10
+    "SlowCheckoutThresholdInMilliseconds": 10,
+    "IdleAfterNoRequestsInSeconds": 60
   }
 }
 ```
 
 - `Enabled` (*bool*, default: `true`): Enables or disables connection pool tracing and metrics.
 - `SlowCheckoutThresholdInMilliseconds` (*int*, default: `10`): Threshold in milliseconds above which a connection checkout is considered slow and recorded as a span in the trace.
+- `IdleAfterNoRequestsInSeconds` (*int*, default: `60`): Time in seconds without any checkout request after which an unused pool is reported as idle. Use `0` to report the pool as idle as soon as nothing is in use and nothing is waiting.
 
 ## Exported Telemetry
 
@@ -76,6 +78,11 @@ Settings can be configured in `appsettings.json` under the `MongoConnectionTelem
   - `db.client.connection.wait_queue` (*ObservableGauge*): Highest number of requests waiting for a connection since the previous collection.
   - `db.client.connection.max` (*ObservableUpDownCounter*): Maximum configured pool size.
   - `db.client.connection.wait_time` (*Histogram*): Time spent waiting to obtain a connection from the pool.
+- **Tags** (on every measurement):
+  - `db.client.connection.name`: Name identifying the client instance.
+  - `db.server.connection.address` / `db.server.connection.port`: Server the pool connects to.
+  - `db.client.connection.pool.idle`: `true` when no connection is in use, no request is waiting in the wait queue and no checkout request was received within `IdleAfterNoRequestsInSeconds`.
+  - `db.client.connection.checkout.failure_reason`: Reason for checkout failure (wait time histogram, when failed).
 
 ## License
 

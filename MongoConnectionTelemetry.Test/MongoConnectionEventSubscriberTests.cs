@@ -15,6 +15,7 @@ namespace MongoConnectionTelemetry.Test;
 public class MongoConnectionEventSubscriberTests : IDisposable
 {
     private const int SlowCheckoutThresholdInMilliseconds = 10;
+    private const int IdleAfterNoRequestsInSeconds = 60;
     private const int MaxSize = 2;
     private const string Name = "test";
 
@@ -327,7 +328,82 @@ public class MongoConnectionEventSubscriberTests : IDisposable
 
         var max = MaxConnectionCountMeasurements(measurements).Should().ContainSingle().Subject;
         ((int)max.Measurement).Should().Be(11);
-        max.Tags.Should().BeEquivalentTo(Tags());
+        max.Tags.Should().BeEquivalentTo(Tags(idle: true));
+    }
+
+    [Fact]
+    public void MetricsReportThePoolAsIdleWhenNoConnectionIsInUseAndNoRequestIsWaiting()
+    {
+        var measurements = new List<RecordedMeasurement>();
+        using var listener = CreateMeterListener(measurements);
+        var subscriber = CreateSubscriber(idleAfterNoRequestsInSeconds: 0);
+        Publish(subscriber, new ConnectionPoolOpenedEvent(ServerId, new ConnectionPoolSettings(maxConnections: MaxSize)));
+        Publish(subscriber, new ConnectionPoolCheckedOutConnectionEvent(ConnectionId, TimeSpan.Zero, 1));
+        Publish(subscriber, new ConnectionPoolCheckedInConnectionEvent(ConnectionId, TimeSpan.Zero, 1));
+
+        listener.RecordObservableInstruments();
+
+        measurements
+            .Where(measurement =>
+                measurement.OfTheSubscriberOfTheTest &&
+                measurement.InstrumentName != "db.client.connection.wait_time")
+            .Should().AllSatisfy(measurement =>
+                measurement.Tags["db.client.connection.pool.idle"].Should().Be(true));
+    }
+
+    [Fact]
+    public void MetricsReportThePoolAsNotIdleWhileAConnectionIsInUse()
+    {
+        var measurements = new List<RecordedMeasurement>();
+        using var listener = CreateMeterListener(measurements);
+        var subscriber = CreateSubscriber();
+        Publish(subscriber, new ConnectionPoolOpenedEvent(ServerId, new ConnectionPoolSettings(maxConnections: MaxSize)));
+        Publish(subscriber, new ConnectionPoolCheckedOutConnectionEvent(ConnectionId, TimeSpan.Zero, 1));
+
+        listener.RecordObservableInstruments();
+
+        measurements
+            .Where(measurement => measurement.OfTheSubscriberOfTheTest)
+            .Should().AllSatisfy(measurement =>
+                measurement.Tags["db.client.connection.pool.idle"].Should().Be(false));
+    }
+
+    [Fact]
+    public void MetricsReportThePoolAsNotIdleWithinTheInactivityWindowAfterTheLastRequest()
+    {
+        var measurements = new List<RecordedMeasurement>();
+        using var listener = CreateMeterListener(measurements);
+        var subscriber = CreateSubscriber();
+        Publish(subscriber, new ConnectionPoolOpenedEvent(ServerId, new ConnectionPoolSettings(maxConnections: MaxSize)));
+        Publish(subscriber, new ConnectionPoolCheckedOutConnectionEvent(ConnectionId, TimeSpan.Zero, 1));
+        Publish(subscriber, new ConnectionPoolCheckedInConnectionEvent(ConnectionId, TimeSpan.Zero, 1));
+
+        listener.RecordObservableInstruments();
+
+        measurements
+            .Where(measurement => measurement.OfTheSubscriberOfTheTest)
+            .Should().AllSatisfy(measurement =>
+                measurement.Tags["db.client.connection.pool.idle"].Should().Be(false));
+    }
+
+    [Fact]
+    public void IdleTagIsReplacedInsteadOfAddedAgainOnEveryCollection()
+    {
+        var measurements = new List<RecordedMeasurement>();
+        using var listener = CreateMeterListener(measurements);
+        var subscriber = CreateSubscriber(idleAfterNoRequestsInSeconds: 0);
+        Publish(subscriber, new ConnectionPoolOpenedEvent(ServerId, new ConnectionPoolSettings(maxConnections: MaxSize)));
+        Publish(subscriber, new ConnectionPoolCheckedOutConnectionEvent(ConnectionId, TimeSpan.Zero, 1));
+
+        listener.RecordObservableInstruments();
+
+        Publish(subscriber, new ConnectionPoolCheckedInConnectionEvent(ConnectionId, TimeSpan.Zero, 1));
+
+        listener.RecordObservableInstruments();
+
+        MaxConnectionCountMeasurements(measurements)
+            .Select(measurement => measurement.Tags)
+            .Should().BeEquivalentTo([Tags(idle: false), Tags(idle: true)], options => options.WithStrictOrdering());
     }
 
     [Fact]
@@ -495,18 +571,25 @@ public class MongoConnectionEventSubscriberTests : IDisposable
                 measurement.OfTheSubscriberOfTheTest && measurement.InstrumentName == "db.client.connection.max")
             .ToList();
 
-    private static Dictionary<string, object?> Tags(string name = Name) =>
+    private static Dictionary<string, object?> Tags(string name = Name, bool idle = false) =>
         new()
         {
             ["db.client.connection.name"] = name,
             ["db.server.connection.address"] = "localhost",
-            ["db.server.connection.port"] = 27017
+            ["db.server.connection.port"] = 27017,
+            ["db.client.connection.pool.idle"] = idle
         };
 
-    private static MongoConnectionEventSubscriber CreateSubscriber(string name = Name) =>
+    private static MongoConnectionEventSubscriber CreateSubscriber(
+        string name = Name,
+        int idleAfterNoRequestsInSeconds = IdleAfterNoRequestsInSeconds) =>
         new(
             name,
-            new MongoConnectionTracingOptions { SlowCheckoutThresholdInMilliseconds = SlowCheckoutThresholdInMilliseconds },
+            new MongoConnectionTracingOptions
+            {
+                SlowCheckoutThresholdInMilliseconds = SlowCheckoutThresholdInMilliseconds,
+                IdleAfterNoRequestsInSeconds = idleAfterNoRequestsInSeconds
+            },
             NullLogger.Instance);
 
     // The meter is static, the instruments of the subscribers created by the other tests stay published on it and

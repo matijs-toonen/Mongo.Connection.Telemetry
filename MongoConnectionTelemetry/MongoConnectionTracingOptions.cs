@@ -22,4 +22,14 @@ public class MongoConnectionTracingOptions
     /// threshold is enough to only report the checkouts that actually waited for a connection to become available.
     /// </summary>
     public int SlowCheckoutThresholdInMilliseconds { get; set; } = 10;
+
+    /// <summary>
+    /// A pool is only reported as idle when it has not received a checkout request for at least this amount of
+    /// seconds, on top of having no connection in use and no request waiting in the wait queue.
+    ///
+    /// A pool that is only used now and then would otherwise flip between idle and busy between two collections,
+    /// the window keeps it marked as busy until it has really been without traffic for a while. A value of zero
+    /// reports the pool as idle as soon as nothing is in use and nothing is waiting.
+    /// </summary>
+    public int IdleAfterNoRequestsInSeconds { get; set; } = 60;
 }

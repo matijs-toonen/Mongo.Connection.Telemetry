@@ -10,14 +10,14 @@ using MongoDB.Driver.Core.Servers;
 namespace MongoConnectionTelemetry;
 
 /// <summary>
-/// Reports MongoDb connection pool checkout wait-time metrics and spans for checkouts that had to wait for a
-/// connection to become available.
+/// Reports MongoDb connection pool and wait queue metrics, as well as spans for checkouts that had to wait in the
+/// queue for a connection to become available from the pool.
 ///
 /// The spans created by the MongoDb driver instrumentation only start once a command is sent, which is after a
-/// connection has been checked out of the pool. Time spent waiting for a free connection is therefore invisible in
-/// the traces: it shows up as an unexplained gap between the application span and the MongoDb command span.
-/// This subscriber closes that gap by emitting a span for every checkout that waited longer than the configured
-/// threshold, and for every checkout that failed (for instance because it timed out waiting for the pool).
+/// connection has been checked out of the pool. Time spent waiting in the wait queue for a free connection is therefore
+/// invisible in the traces: it shows up as an unexplained gap between the application span and the MongoDb command span.
+/// This subscriber closes that gap by emitting a span for every checkout that waited in the queue longer than the configured
+/// threshold, and for every checkout that failed (for instance because it timed out waiting in the wait queue for the pool).
 /// </summary>
 public sealed class MongoConnectionEventSubscriber : IEventSubscriber
 {
@@ -28,7 +28,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     public const string ActivitySourceName = "MongoDb.Connection.Telemetry";
 
     /// <summary>
-    /// Name of the <see cref="Meter"/> used to publish connection metrics.
+    /// Name of the <see cref="Meter"/> used to publish connection pool and wait queue metrics.
     /// </summary>
     public const string MeterName = "MongoDb.Connection.Telemetry";
 
@@ -39,7 +39,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
 
     private readonly ConcurrentDictionary<ServerId, PoolState> _poolStates = new();
     private readonly ILogger _logger;
-    private readonly string _poolName;
+    private readonly string _connectionInstanceName;
     private readonly TimeSpan _slowCheckoutThreshold;
     private readonly Histogram<double> _connectionWaitTime;
 
@@ -52,19 +52,20 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     /// <summary>
     /// Creates the subscriber for a single MongoDb client.
     /// </summary>
-    /// <param name="poolName">Name identifying the client the pool belongs to, used in the log messages.</param>
+    /// <param name="connectionInstanceName">Unique name identifying the client belongs to, used in the log messages and metric tags to identify the source of the metric.</param>
     /// <param name="options">Settings for the tracing and metrics.</param>
     /// <param name="logger">Logger used to report failed checkouts.</param>
-    public MongoConnectionEventSubscriber(string poolName, MongoConnectionTracingOptions options, ILogger logger)
+    public MongoConnectionEventSubscriber(string connectionInstanceName, MongoConnectionTracingOptions options, ILogger logger)
     {
-        this._poolName = poolName;
-        this._logger = logger;
+        _connectionInstanceName = connectionInstanceName;
+        _logger = logger;
         _slowCheckoutThreshold = TimeSpan.FromMilliseconds(options.SlowCheckoutThresholdInMilliseconds);
         _openedHandler = Handle;
         _checkingOutHandler = Handle;
         _checkedOutHandler = Handle;
         _checkedInHandler = Handle;
         _checkingOutFailedHandler = Handle;
+
         // Recording the number of connections in use on every checkout would only export the value of the moment the
         // metrics are collected, peaks that are over before the next collection would be invisible. The number of
         // connections in use is therefore tracked as a high watermark that is published by an observable instrument:
@@ -181,7 +182,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     }
 
     private PoolState GetPoolState(ServerId serverId) =>
-        _poolStates.GetOrAdd(serverId, static (id, name) => new PoolState(id, name), _poolName);
+        _poolStates.GetOrAdd(serverId, static (id, name) => new PoolState(id, name), _connectionInstanceName);
 
     // Every server of the client keeps its own counters and its own high water mark, each of them is reported as a
     // measurement of its own that is tagged with the server it belongs to. The high water mark is reset to the number
@@ -219,15 +220,15 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
 
         if (failureReason is not null)
         {
-            _logger.CheckoutFailed(_poolName, waited.TotalMilliseconds, failureReason, connectionsInUse, maxPoolSize);
+            _logger.CheckoutFailed(_connectionInstanceName, waited.TotalMilliseconds, failureReason, connectionsInUse, maxPoolSize);
         }
         else if (exhausted)
         {
-            _logger.CheckoutWaitedForExhaustedPool(_poolName, waited.TotalMilliseconds, maxPoolSize);
+            _logger.CheckoutWaitedForExhaustedPool(_connectionInstanceName, waited.TotalMilliseconds, maxPoolSize);
         }
     }
 
-    private void AddSpan(TimeSpan waited, int connectionsInUse, int maxPoolSize, string? failureReason)
+    private static void AddSpan(TimeSpan waited, int connectionsInUse, int maxPoolSize, string? failureReason)
     {
         var endTime = DateTimeOffset.UtcNow;
 
@@ -257,7 +258,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     }
 
     /// <summary>
-    /// State of the pool of a single server of the client. The counters and the high water marks of a server are
+    /// State of the pool and wait queue of a single server of the client. The counters and the high water marks of a server are
     /// kept apart from those of the other servers, the measurements of the server are tagged with
     /// <see cref="Tags"/> so they form a series of their own.
     /// </summary>
@@ -269,26 +270,25 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
         private int _peakConnectionsInUse;
         private int _peakPendingRequests;
 
-        public PoolState(ServerId serverId, string poolName)
+        public PoolState(ServerId serverId, string connectionName)
         {
             // The server id itself is not used as a tag: it contains the cluster id, a counter that starts over on
             // every start of the process, which would create a new series on every restart. The endpoint of the
             // server is the stable part of it.
-            var tags = new TagList { { "db.client.connection.pool.name", poolName } };
+            var tags = new TagList { { "db.client.connection.name", connectionName } };
 
             switch (serverId.EndPoint)
             {
                 case DnsEndPoint dnsEndPoint:
-                    tags.Add("server.address", dnsEndPoint.Host);
-
-                    tags.Add("server.port", dnsEndPoint.Port);
+                    tags.Add("db.server.connection.address", dnsEndPoint.Host);
+                    tags.Add("db.server.connection.port", dnsEndPoint.Port);
                     break;
                 case IPEndPoint ipEndPoint:
-                    tags.Add("server.address", ipEndPoint.Address.ToString());
-                    tags.Add("server.port", ipEndPoint.Port);
+                    tags.Add("db.server.connection.address", ipEndPoint.Address.ToString());
+                    tags.Add("db.server.connection.port", ipEndPoint.Port);
                     break;
                 default:
-                    tags.Add("server.address", serverId.EndPoint.ToString());
+                    tags.Add("db.server.connection.address", serverId.EndPoint.ToString());
                     break;
             }
 

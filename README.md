@@ -18,10 +18,10 @@ The standard MongoDB .NET Driver OpenTelemetry instrumentation only creates span
 Register the tracing options and OpenTelemetry sources with your `IServiceCollection`:
 
 ```csharp
-using MongoConnectionTelemetry.Diagnostics;
+using MongoConnectionTelemetry;
 
 // Registers configuration options and OpenTelemetry ActivitySource / Meter
-builder.Services.AddMongoConnectionPoolTracing(builder.Configuration);
+builder.Services.AddMongoConnectionTracing(builder.Configuration);
 ```
 
 ### 2. Configure MongoDB Client Settings
@@ -30,13 +30,13 @@ Subscribe the connection pool telemetry when configuring your `MongoClientSettin
 
 ```csharp
 using MongoDB.Driver;
-using MongoConnectionTelemetry.Diagnostics;
+using MongoConnectionTelemetry;
 
 var settings = MongoClientSettings.FromConnectionString("mongodb://localhost:27017");
 
 settings.ClusterConfigurator = clusterBuilder =>
 {
-    clusterBuilder.SubscribeConnectionPoolTracing(serviceProvider, "my-service-db");
+    clusterBuilder.SubscribeConnectionTracing(serviceProvider, "my-service-db");
 };
 
 var mongoClient = new MongoClient(settings);
@@ -44,11 +44,11 @@ var mongoClient = new MongoClient(settings);
 
 ## Configuration
 
-Settings can be configured in `appsettings.json` under the `MongoConnectionPoolTracing` section:
+Settings can be configured in `appsettings.json` under the `MongoConnectionTelemetry` section:
 
 ```json
 {
-  "MongoConnectionPoolTracing": {
+  "MongoConnectionTelemetry": {
     "Enabled": true,
     "SlowCheckoutThresholdInMilliseconds": 10
   }
@@ -61,8 +61,8 @@ Settings can be configured in `appsettings.json` under the `MongoConnectionPoolT
 ## Exported Telemetry
 
 ### Tracing
-- **ActivitySource**: `MongoDb.ConnectionPool`
-- **Activity Name**: `mongodb connection checkout`
+- **ActivitySource**: `MongoDb.Connection.Telemetry`
+- **Activity Name**: `MongoDb connection received from pool`
 - **Tags**:
   - `db.client.connection.wait_time_ms`: Wait time in milliseconds.
   - `db.client.connection.count`: Number of connections in use.
@@ -70,7 +70,7 @@ Settings can be configured in `appsettings.json` under the `MongoConnectionPoolT
   - `db.client.connection.checkout.failure_reason`: Reason for checkout failure (when failed).
 
 ### Metrics
-- **Meter**: `MongoDb.ConnectionPool`
+- **Meter**: `MongoDb.Connection.Telemetry`
 - **Instruments**:
   - `db.client.connection.count` (*ObservableGauge*): Highest number of connections in use since the previous collection.
   - `db.client.connection.wait_queue` (*ObservableGauge*): Highest number of requests waiting for a connection since the previous collection.

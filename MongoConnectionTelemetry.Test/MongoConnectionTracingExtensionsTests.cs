@@ -10,7 +10,7 @@ namespace MongoConnectionTelemetry.Test;
 public class MongoConnectionTracingExtensionsTests
 {
     [Fact]
-    public void AddMongoConnectionPoolTracing_BindsConfigurationAndRegistersTelemetry()
+    public void AddMongoConnectionTracing_BindsConfigurationAndRegistersTelemetry()
     {
         var inMemorySettings = new Dictionary<string, string?>
         {
@@ -34,7 +34,7 @@ public class MongoConnectionTracingExtensionsTests
     }
 
     [Fact]
-    public void SubscribeConnectionPoolTracing_SubscribesWhenEnabled()
+    public void SubscribeConnectionTracing_SubscribesWhenEnabled()
     {
         var inMemorySettings = new Dictionary<string, string?>
         {

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver.Core.Events;
 using MongoDB.Driver.Core.Servers;
@@ -42,6 +43,12 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     private readonly TimeSpan _slowCheckoutThreshold;
     private readonly Histogram<double> _connectionWaitTime;
 
+    private readonly Action<ConnectionPoolOpenedEvent> _openedHandler;
+    private readonly Action<ConnectionPoolCheckingOutConnectionEvent> _checkingOutHandler;
+    private readonly Action<ConnectionPoolCheckedOutConnectionEvent> _checkedOutHandler;
+    private readonly Action<ConnectionPoolCheckedInConnectionEvent> _checkedInHandler;
+    private readonly Action<ConnectionPoolCheckingOutConnectionFailedEvent> _checkingOutFailedHandler;
+
     /// <summary>
     /// Creates the subscriber for a single MongoDb client.
     /// </summary>
@@ -53,6 +60,11 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
         this._poolName = poolName;
         this._logger = logger;
         _slowCheckoutThreshold = TimeSpan.FromMilliseconds(options.SlowCheckoutThresholdInMilliseconds);
+        _openedHandler = Handle;
+        _checkingOutHandler = Handle;
+        _checkedOutHandler = Handle;
+        _checkedInHandler = Handle;
+        _checkingOutFailedHandler = Handle;
         // Recording the number of connections in use on every checkout would only export the value of the moment the
         // metrics are collected, peaks that are over before the next collection would be invisible. The number of
         // connections in use is therefore tracked as a high watermark that is published by an observable instrument:
@@ -90,31 +102,31 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
     {
         if (typeof(TEvent) == typeof(ConnectionPoolOpenedEvent))
         {
-            handler = (Action<TEvent>)(object)(Action<ConnectionPoolOpenedEvent>)Handle;
+            handler = Unsafe.As<Action<TEvent>>(_openedHandler);
             return true;
         }
 
         if (typeof(TEvent) == typeof(ConnectionPoolCheckingOutConnectionEvent))
         {
-            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckingOutConnectionEvent>)Handle;
+            handler = Unsafe.As<Action<TEvent>>(_checkingOutHandler);
             return true;
         }
 
         if (typeof(TEvent) == typeof(ConnectionPoolCheckedOutConnectionEvent))
         {
-            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckedOutConnectionEvent>)Handle;
+            handler = Unsafe.As<Action<TEvent>>(_checkedOutHandler);
             return true;
         }
 
         if (typeof(TEvent) == typeof(ConnectionPoolCheckedInConnectionEvent))
         {
-            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckedInConnectionEvent>)Handle;
+            handler = Unsafe.As<Action<TEvent>>(_checkedInHandler);
             return true;
         }
 
         if (typeof(TEvent) == typeof(ConnectionPoolCheckingOutConnectionFailedEvent))
         {
-            handler = (Action<TEvent>)(object)(Action<ConnectionPoolCheckingOutConnectionFailedEvent>)Handle;
+            handler = Unsafe.As<Action<TEvent>>(_checkingOutFailedHandler);
             return true;
         }
 

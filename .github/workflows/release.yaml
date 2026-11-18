@@ -1,0 +1,98 @@
+name: Build & Release Package
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # Allows tagging / creating releases (MinVer uses the tags for versioning)
+      id-token: write   # REQUIRED: Allows GitHub to issue an OIDC token for NuGet
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # Full history including tags: MinVer derives the package version from them and
+          # SourceLink needs the commit information to point at the right sources.
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Tags the current commit with the version declared in the csproj (<version>),
+      # so MinVer picks it up as the package version for this build.
+      - name: Tag Commit With csproj Version
+        run: |
+          VERSION=$(sed -n 's:.*<[Vv]ersion>\(.*\)</[Vv]ersion>.*:\1:p' MongoConnectionTelemetry/MongoConnectionTelemetry.csproj | head -n 1)
+          if [ -z "$VERSION" ]; then
+            echo "Could not read <version> from MongoConnectionTelemetry/MongoConnectionTelemetry.csproj" >&2
+            exit 1
+          fi
+          TAG="v$VERSION"
+          echo "Version from csproj: $VERSION (tag: $TAG)"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists locally - skipping."
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on origin - fetching it."
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+
+      - name: Restore Dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run Tests
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
+      # Produces the .nupkg together with the .snupkg symbol package; SourceLink and
+      # deterministic (ContinuousIntegrationBuild) settings come from the csproj.
+      - name: Create Package (.nupkg + .snupkg)
+        run: >
+          dotnet pack MongoConnectionTelemetry/MongoConnectionTelemetry.csproj
+          --configuration Release
+          --no-build
+          --output ./artifacts
+
+      - name: Upload Packages As Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            ./artifacts/*.nupkg
+            ./artifacts/*.snupkg
+
+      # Exchanges GitHub's OIDC token for a short-lived temporary NuGet API key
+      - name: NuGet Login
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{NUGET_USER}}
+
+      # Publishes the package; the matching .snupkg next to it is pushed along automatically
+      - name: Publish to NuGet.org
+        run: >
+          dotnet nuget push "./artifacts/*.nupkg"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate

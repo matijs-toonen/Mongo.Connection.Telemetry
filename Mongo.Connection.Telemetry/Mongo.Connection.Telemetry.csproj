@@ -5,7 +5,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <PackageId>Mongo.Connection.Telemetry</PackageId>
-        <version>0.0.2</version>
+        <version>0.0.3</version>
         <Description>OpenTelemetry instrumentation and metrics for MongoDB connections.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -37,7 +37,7 @@
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="[1.16.0,)" />
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="11.0.100" PrivateAssets="All" />
         <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="All" />
-        <PackageReference Include="MongoDB.Driver" Version="[2.22.0,)" />
+        <PackageReference Include="MongoDB.Driver" Version="[3.0.0,)" />
     </ItemGroup>
 
 </Project>

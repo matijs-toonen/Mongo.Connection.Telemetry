@@ -48,7 +48,7 @@ Settings can be configured in `appsettings.json` under the `Mongo.Connection.Tel
 
 ```json
 {
-  "Mongo.Connection.Telemetry": {
+  "MongoConnectionTelemetry": {
     "Enabled": true,
     "SlowCheckoutThresholdInMilliseconds": 10,
     "IdleAfterNoRequestsInSeconds": 60
@@ -83,6 +83,9 @@ Settings can be configured in `appsettings.json` under the `Mongo.Connection.Tel
   - `db.server.connection.address` / `db.server.connection.port`: Server the pool connects to.
   - `db.client.connection.pool.idle`: `true` when no connection is in use, no request is waiting in the wait queue and no checkout request was received within `IdleAfterNoRequestsInSeconds`.
   - `db.client.connection.checkout.failure_reason`: Reason for checkout failure (wait time histogram, when failed).
+
+#### Example metrics dashboards
+![Example metrics dashboards](./resources/example-metrics-dashboard.png)
 
 ## License
 

@@ -29,6 +29,7 @@ jobs:
       # Tags the current commit with the version declared in the csproj (<version>),
       # so MinVer picks it up as the package version for this build.
       - name: Tag Commit With csproj Version
+        if: github.ref == 'refs/heads/main'
         run: |
           VERSION=$(sed -n 's:.*<[Vv]ersion>\(.*\)</[Vv]ersion>.*:\1:p' Mongo.Connection.Telemetry/Mongo.Connection.Telemetry.csproj | head -n 1)
           if [ -z "$VERSION" ]; then

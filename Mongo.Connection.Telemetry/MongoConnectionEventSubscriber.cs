@@ -90,7 +90,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
             ObservePendingRequests,
             "{request}",
             "Highest number of requests waiting for a connection since the previous collection.");
-        _ = Meter.CreateObservableUpDownCounter(
+        _ = Meter.CreateObservableGauge(
             "db.client.connection.max",
             ObserveMaxConnections,
             "{connection}",
@@ -98,7 +98,11 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
         _connectionWaitTime = Meter.CreateHistogram<double>(
             "db.client.connection.wait_time",
             "ms",
-            "Time spent waiting to obtain a connection from the pool.");
+            "Time spent waiting to obtain a connection from the pool.",
+            advice: new InstrumentAdvice<double>
+            {
+                HistogramBucketBoundaries = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 50, 100, 250, 500, 1000, 5000, 10_000]
+            });
     }
 
     /// <inheritdoc />

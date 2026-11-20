@@ -93,13 +93,17 @@ services.AddSingleton<IMongoClient>(sp =>
 
 ## Configuration
 
-Settings are done using the `MongoConnectionTracingOptions` model. Within this model the following settings are available:
+Connection pool telemetry is configured using `MongoConnectionTracingOptions`. You can configure options via `appsettings.json` using the .NET Options pattern, or inline via code.
+
+### Available Settings
 
 - `Enabled` (*bool*, default: `true`): Enables or disables connection pool tracing and metrics.
-- `SlowCheckoutThresholdInMilliseconds` (*int*, default: `10`): Threshold in milliseconds above which a connection checkout is considered slow and recorded as a span in the trace.
+- `SlowCheckoutThresholdInMilliseconds` (*int*, default: `15`): Threshold in milliseconds above which a connection checkout is considered slow and recorded as a span in the trace.
 - `IdleAfterNoRequestsInSeconds` (*int*, default: `60`): Time in seconds without any checkout request after which an unused pool is reported as idle. Use `0` to report the pool as idle as soon as nothing is in use and nothing is waiting.
 
-Example settings for this in the `appsettings.json`:
+### Configuration via `appsettings.json`
+
+Add the configuration section to your `appsettings.json`:
 
 ```json
 {
@@ -109,6 +113,13 @@ Example settings for this in the `appsettings.json`:
     "IdleAfterNoRequestsInSeconds": 60
   }
 }
+```
+
+Register the options in your dependency injection container (`Program.cs`):
+
+```csharp
+builder.Services.Configure<MongoConnectionTracingOptions>(
+    builder.Configuration.GetSection("MongoConnectionTelemetry"));
 ```
 
 ## Exported Telemetry

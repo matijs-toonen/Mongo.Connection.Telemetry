@@ -5,7 +5,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <PackageId>Mongo.Connection.Telemetry</PackageId>
-        <version>0.0.3</version>
+        <version>0.0.4</version>
         <Description>OpenTelemetry instrumentation and metrics for MongoDB connections.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>

@@ -6,11 +6,6 @@ namespace Mongo.Connection.Telemetry;
 public class MongoConnectionTracingOptions
 {
     /// <summary>
-    /// The default configuration section name for MongoDb connection telemetry.
-    /// </summary>
-    public const string DefaultSectionName = "MongoConnectionTelemetry";
-
-    /// <summary>
     /// Whether the connection checkout information is added to the traces and metrics.
     /// </summary>
     public bool Enabled { get; set; } = true;
@@ -21,7 +16,7 @@ public class MongoConnectionTracingOptions
     /// Checking out a connection that has a connection available takes close to no time, so a low
     /// threshold is enough to only report the checkouts that actually waited for a connection to become available.
     /// </summary>
-    public int SlowCheckoutThresholdInMilliseconds { get; set; } = 10;
+    public int SlowCheckoutThresholdInMilliseconds { get; set; } = 15;
 
     /// <summary>
     /// A pool is only reported as idle when it has not received a checkout request for at least this amount of

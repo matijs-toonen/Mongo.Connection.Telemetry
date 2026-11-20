@@ -160,10 +160,27 @@ public class MongoConnectionTracingExtensionsTests
     }
 
     [Fact]
-    public void AddMongoConnectionMetrics_RegistersMeter()
+    public void AddMongoConnectionMetrics_RegistersMeter_WithDefaultConfiguration()
     {
         var builder = Sdk.CreateMeterProviderBuilder();
         var result = builder.AddMongoConnectionMetrics();
+
+        result.Should().BeSameAs(builder);
+
+        using var meterProvider = builder.Build();
+        meterProvider.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddMongoConnectionMetrics_RegistersMeter_WithCustomHistogramConfiguration()
+    {
+        var builder = Sdk.CreateMeterProviderBuilder();
+        var customConfiguration = new ExplicitBucketHistogramConfiguration
+        {
+            Boundaries = [5, 10, 25, 50, 100]
+        };
+
+        var result = builder.AddMongoConnectionMetrics(customConfiguration);
 
         result.Should().BeSameAs(builder);
 

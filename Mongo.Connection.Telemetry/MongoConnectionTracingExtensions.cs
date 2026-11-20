@@ -94,11 +94,18 @@ public static class MongoConnectionTracingExtensions
     /// Adds the MongoDB connection metrics meter to the OpenTelemetry meter provider builder.
     /// </summary>
     /// <param name="metricProviderBuilder">The meter provider builder to configure.</param>
+    /// <param name="bucketHistogramConfiguration">Optional explicit bucket histogram configuration for the meter views. Defaults to explicit boundaries: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 50, 100, 250, 500, 1000, 5000, 10_000] if not provided.</param>
     /// <returns>The meter provider builder for chaining.</returns>
-    public static MeterProviderBuilder AddMongoConnectionMetrics(this MeterProviderBuilder metricProviderBuilder)
+    public static MeterProviderBuilder AddMongoConnectionMetrics(this MeterProviderBuilder metricProviderBuilder, ExplicitBucketHistogramConfiguration? bucketHistogramConfiguration = null)
     {
         ArgumentNullException.ThrowIfNull(metricProviderBuilder);
-        return metricProviderBuilder.AddMeter(MongoConnectionEventSubscriber.MeterName);
+        bucketHistogramConfiguration ??= new ExplicitBucketHistogramConfiguration
+        {
+            Boundaries = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 50, 100, 250, 500, 1000, 5000, 10_000]
+        };
+
+        return metricProviderBuilder.AddMeter(MongoConnectionEventSubscriber.MeterName)
+            .AddView(MongoConnectionEventSubscriber.MeterName, bucketHistogramConfiguration);
     }
 }
 

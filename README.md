@@ -33,6 +33,18 @@ builder.Services.AddOpenTelemetry()
     });
 ```
 
+By default, `AddMongoConnectionMetrics` configures an `ExplicitBucketHistogramConfiguration` view for the meter with the following default bucket boundaries (in milliseconds):
+`[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 50, 100, 250, 500, 1000, 5000, 10_000]`.
+
+You can optionally customize the bucket boundaries by passing a custom `ExplicitBucketHistogramConfiguration`:
+
+```csharp
+metrics.AddMongoConnectionMetrics(new ExplicitBucketHistogramConfiguration
+{
+    Boundaries = [0, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
+});
+```
+
 ### 2. Configure MongoDB Client Settings
 
 Subscribe the connection pool telemetry when configuring your `MongoClientSettings`.

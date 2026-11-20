@@ -101,7 +101,7 @@ public sealed class MongoConnectionEventSubscriber : IEventSubscriber
             "Time spent waiting to obtain a connection from the pool.",
             advice: new InstrumentAdvice<double>
             {
-                HistogramBucketBoundaries = [15, 25, 50, 100, 250, 500, 1000, 2500]
+                HistogramBucketBoundaries = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 50, 100, 250, 500, 1000, 5000, 10_000]
             });
     }
 

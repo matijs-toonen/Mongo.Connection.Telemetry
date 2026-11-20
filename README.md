@@ -13,20 +13,31 @@ The standard MongoDB .NET Driver OpenTelemetry instrumentation only creates span
 
 ## Getting Started
 
-### 1. Register Services and Telemetry
+### 1. Register OpenTelemetry Tracing and Metrics
 
-Register the tracing options and OpenTelemetry sources with your `IServiceCollection`:
+Register the MongoDB connection activity source and meter with your OpenTelemetry builder:
 
 ```csharp
 using Mongo.Connection.Telemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 
-// Registers configuration options and OpenTelemetry ActivitySource / Meter
-builder.Services.AddMongoConnectionTracing(builder.Configuration);
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing =>
+    {
+        tracing.AddMongoConnectionTracing();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics.AddMongoConnectionMetrics();
+    });
 ```
 
 ### 2. Configure MongoDB Client Settings
 
-Subscribe the connection pool telemetry when configuring your `MongoClientSettings`:
+Subscribe the connection pool telemetry when configuring your `MongoClientSettings`.
+
+#### Basic Usage
 
 ```csharp
 using MongoDB.Driver;
@@ -36,15 +47,59 @@ var settings = MongoClientSettings.FromConnectionString("mongodb://localhost:270
 
 settings.ClusterConfigurator = clusterBuilder =>
 {
-    clusterBuilder.SubscribeConnectionTracing(serviceProvider, "my-service-db");
+    clusterBuilder.SubscribeConnectionTracing("my-service-db");
 };
 
 var mongoClient = new MongoClient(settings);
 ```
 
+#### Custom Options and Logger
+
+You can customize tracing options inline or pass a custom logger factory:
+
+```csharp
+settings.ClusterConfigurator = clusterBuilder =>
+{
+    clusterBuilder.SubscribeConnectionTracing(
+        "my-service-db",
+        options =>
+        {
+            options.SlowCheckoutThresholdInMilliseconds = 25;
+            options.IdleAfterNoRequestsInSeconds = 30;
+        },
+        loggerFactory);
+};
+```
+
+#### With Dependency Injection
+
+When registering a `MongoClient` with dependency injection, you can pass the injected `ILoggerFactory` and options:
+
+```csharp
+services.AddSingleton<IMongoClient>(sp =>
+{
+    var settings = MongoClientSettings.FromConnectionString("mongodb://localhost:27017");
+    var loggerFactory = sp.GetService<ILoggerFactory>();
+    var options = sp.GetRequiredService<IOptions<MongoConnectionTracingOptions>>().Value;
+
+    settings.ClusterConfigurator = clusterBuilder =>
+    {
+        clusterBuilder.SubscribeConnectionTracing("my-service-db", options, loggerFactory);
+    };
+
+    return new MongoClient(settings);
+});
+```
+
 ## Configuration
 
-Settings can be configured in `appsettings.json` under the `Mongo.Connection.Telemetry` section:
+Settings are done using the `MongoConnectionTracingOptions` model. Within this model the following settings are available:
+
+- `Enabled` (*bool*, default: `true`): Enables or disables connection pool tracing and metrics.
+- `SlowCheckoutThresholdInMilliseconds` (*int*, default: `10`): Threshold in milliseconds above which a connection checkout is considered slow and recorded as a span in the trace.
+- `IdleAfterNoRequestsInSeconds` (*int*, default: `60`): Time in seconds without any checkout request after which an unused pool is reported as idle. Use `0` to report the pool as idle as soon as nothing is in use and nothing is waiting.
+
+Example settings for this in the `appsettings.json`:
 
 ```json
 {
@@ -55,10 +110,6 @@ Settings can be configured in `appsettings.json` under the `Mongo.Connection.Tel
   }
 }
 ```
-
-- `Enabled` (*bool*, default: `true`): Enables or disables connection pool tracing and metrics.
-- `SlowCheckoutThresholdInMilliseconds` (*int*, default: `10`): Threshold in milliseconds above which a connection checkout is considered slow and recorded as a span in the trace.
-- `IdleAfterNoRequestsInSeconds` (*int*, default: `60`): Time in seconds without any checkout request after which an unused pool is reported as idle. Use `0` to report the pool as idle as soon as nothing is in use and nothing is waiting.
 
 ## Exported Telemetry
 
